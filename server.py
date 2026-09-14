@@ -1,0 +1,717 @@
+# -*- coding: utf-8 -*-
+"""Test Onda: server del quiz di prequalifica per il workshop
+"Professionista del Futuro" di Andrea Acconcia.
+
+Solo libreria standard: si avvia con `python3 server.py`.
+
+Regola di prodotto: il quiz non esclude nessuno. Chiunque arriva in fondo, vede
+il proprio profilo e può inviare la pre-iscrizione. Punteggi, soglie, etichetta
+interna e scelta della variante restano solo lato server: il browser riceve i
+testi delle domande e, alla fine, il contenuto già tradotto da mostrare.
+"""
+
+import base64
+import csv
+import hmac
+import html
+import io
+import json
+import os
+import secrets
+import urllib.parse
+from http import HTTPStatus
+from http.cookies import SimpleCookie
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+import archivio
+import contenuti
+import punteggio
+
+PORTA = int(os.environ.get("TEST_ONDA_PORT", "8000"))
+INDIRIZZO = os.environ.get("TEST_ONDA_HOST", "0.0.0.0")
+PASSWORD_ADMIN = os.environ.get("TEST_ONDA_ADMIN_PASSWORD", "onda")
+CARTELLA = os.path.dirname(os.path.abspath(__file__))
+TOTALE_DOMANDE = len(contenuti.DOMANDE)
+
+
+# --------------------------------------------------------------------------
+# Helper di rendering
+# --------------------------------------------------------------------------
+
+def e(testo):
+    return html.escape(str(testo), quote=True)
+
+
+def attributo(nome, valore):
+    """Scrive un attributo solo se ha davvero un valore.
+
+    Gli attributi booleani dell'HTML (`disabled`, `checked`, `selected`) sono
+    attivi per il solo fatto di essere presenti, anche con valore vuoto: per
+    questo un attributo vuoto non va scritto affatto, invece che scritto vuoto.
+    È la classe di bug che bloccava il bottone "Indietro".
+    """
+    if valore is None or valore is False or valore == "":
+        return ""
+    if valore is True:
+        return " " + nome
+    return ' %s="%s"' % (nome, e(valore))
+
+
+HEADER = """
+<header class="header">
+  <div class="logo">★</div>
+  <div class="logo-testo">ANDREA ACCONCIA<span>IL COACH DELL'ANIMA</span></div>
+  <div class="pillola-test">TEST ONDA</div>
+</header>
+"""
+
+FOOTER = """
+<footer class="footer">
+  <strong>Andrea Acconcia, Il Coach dell'Anima</strong>
+  Test Onda, percorso di autoconoscenza professionale
+</footer>
+"""
+
+
+def pagina(titolo, corpo, progresso=None):
+    barra = ""
+    if progresso is not None:
+        barra = '<div class="progresso"><div style="width:%d%%"></div></div>' % progresso
+    return """<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>%s</title>
+<link rel="stylesheet" href="/statico/stile.css">
+</head>
+<body>
+<div class="pagina">
+%s%s
+%s
+%s
+</div>
+</body>
+</html>""" % (e(titolo), HEADER, barra, corpo, FOOTER)
+
+
+# --------------------------------------------------------------------------
+# Pagine
+# --------------------------------------------------------------------------
+
+def pagina_landing(errore=None, nome="", cognome=""):
+    blocco_errore = '<div class="errore">%s</div>' % e(errore) if errore else ""
+    corpo = """
+<section class="hero">
+  <span class="eyebrow">QUIZ PROFESSIONISTA DEL FUTURO, GRATUITO</span>
+  <h1>Sei pronto a diventare il Professionista del Futuro?</h1>
+  <p>L'intelligenza artificiale è come un'onda che si avvicina: puoi scegliere di cavalcarla
+  oppure lasciarti travolgere. Questo test ti dice, in modo onesto, a che punto sei oggi.</p>
+  <div class="meta">
+    <span>16 domande</span>
+    <span>6 minuti</span>
+    <span>Profilo personalizzato</span>
+  </div>
+</section>
+<div class="contenuto stretto">
+  <div class="card sollevata">
+    %s
+    <h2>Iniziamo da come ti chiami</h2>
+    <p>Il tuo profilo sarà scritto su misura per te, quindi serve il tuo nome.</p>
+    <form method="post" action="/inizia">
+      <div class="campo">
+        <label for="nome">Nome</label>
+        <input type="text" id="nome" name="nome" value="%s" required autocomplete="given-name">
+      </div>
+      <div class="campo">
+        <label for="cognome">Cognome</label>
+        <input type="text" id="cognome" name="cognome" value="%s" required autocomplete="family-name">
+      </div>
+      <button type="submit" class="bottone largo">Inizia il quiz <span>→</span></button>
+    </form>
+  </div>
+  <div class="card">
+    <p>Non c'è una risposta giusta e una sbagliata: rispondi di pancia, come ti senti
+    davvero oggi. Alla fine ricevi il tuo punto di partenza, scritto da me.</p>
+    <div class="firma">Andrea Acconcia<span>Il Coach dell'Anima</span></div>
+  </div>
+</div>
+""" % (blocco_errore, e(nome), e(cognome))
+    return pagina("Test Onda", corpo)
+
+
+def pagina_domanda(indice, risposta_salvata):
+    domanda = contenuti.DOMANDE[indice]
+    blocco = contenuti.BLOCCHI[domanda["blocco"]]
+    progresso = int(round(indice / TOTALE_DOMANDE * 100))
+
+    if domanda["tipo"] == "scala":
+        pulsanti = []
+        for valore in range(1, 11):
+            classe = "scelta" if risposta_salvata == valore else ""
+            pulsanti.append(
+                '<button type="submit" name="risposta" value="%d"%s>%d</button>'
+                % (valore, attributo("class", classe), valore)
+            )
+        risposte_html = (
+            '<div class="scala">%s</div>'
+            '<div class="scala-legenda"><span>%s</span><span>%s</span></div>'
+            % ("".join(pulsanti), e(domanda["etichetta_min"]), e(domanda["etichetta_max"]))
+        )
+    else:
+        opzioni = []
+        for i, (testo, _punti) in enumerate(domanda["opzioni"]):
+            classe = "opzione scelta" if risposta_salvata == i else "opzione"
+            opzioni.append(
+                '<button type="submit" name="risposta" value="%d" class="%s">%s</button>'
+                % (i, classe, e(testo))
+            )
+        risposte_html = '<div class="opzioni">%s</div>' % "".join(opzioni)
+
+    corpo = """
+<div class="contenuto">
+  <form method="post" action="/quiz">
+    <input type="hidden" name="d" value="%d">
+    <div class="card">
+      <span class="badge %s">%s %s</span>
+      <h2>%s</h2>
+      %s
+    </div>
+    <div class="riga-navigazione">
+      <button type="submit" name="azione" value="indietro" class="bottone fantasma">← Indietro</button>
+      <span class="contatore">Domanda %d di %d</span>
+    </div>
+  </form>
+</div>
+""" % (
+        indice,
+        e(blocco["classe"]),
+        e(blocco["icona"]),
+        e(blocco["nome"]),
+        e(domanda["testo"]),
+        risposte_html,
+        indice + 1,
+        TOTALE_DOMANDE,
+    )
+    return pagina("Test Onda, domanda %d" % (indice + 1), corpo, progresso)
+
+
+def pagina_contatti(sessione, errore=None, valori=None):
+    valori = valori or {}
+    blocco_errore = '<div class="errore">%s</div>' % e(errore) if errore else ""
+    corpo = """
+<div class="contenuto stretto">
+  <div class="card">
+    %s
+    <h2>Ci siamo quasi!</h2>
+    <p>Ho tutto quello che mi serve per scrivere il tuo profilo. Lasciami i tuoi contatti
+    e te lo mostro subito.</p>
+    <form method="post" action="/contatti">
+      <div class="campo">
+        <label for="nome">Nome</label>
+        <input type="text" id="nome" name="nome" value="%s" required autocomplete="given-name">
+      </div>
+      <div class="campo">
+        <label for="cognome">Cognome</label>
+        <input type="text" id="cognome" name="cognome" value="%s" required autocomplete="family-name">
+      </div>
+      <div class="campo">
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" value="%s" required autocomplete="email">
+      </div>
+      <div class="campo">
+        <label for="telefono">Telefono</label>
+        <input type="tel" id="telefono" name="telefono" value="%s" required autocomplete="tel">
+      </div>
+      <label class="consenso">
+        <input type="checkbox" name="consenso" value="1"%s>
+        <span>Acconsento al trattamento dei miei dati per essere ricontattato e per ricevere
+        comunicazioni legate a questo percorso.</span>
+      </label>
+      <button type="submit" class="bottone largo">Scopri il mio profilo <span>→</span></button>
+    </form>
+  </div>
+</div>
+""" % (
+        blocco_errore,
+        e(valori.get("nome", sessione["nome"])),
+        e(valori.get("cognome", sessione["cognome"])),
+        e(valori.get("email", "")),
+        e(valori.get("telefono", "")),
+        attributo("checked", bool(valori.get("consenso"))),
+    )
+    return pagina("Test Onda, i tuoi contatti", corpo, 100)
+
+
+def _blocco_punteggi(esito):
+    righe = []
+    for chiave in ("A", "B", "C"):
+        blocco = contenuti.BLOCCHI[chiave]
+        valore, etichetta = esito["mostrati"][chiave]
+        righe.append(
+            """
+      <div class="punteggio">
+        <span class="icona">%s</span>
+        <span>
+          <span class="nome">%s</span><span class="etichetta">, %s</span>
+          <div class="barra"><div style="width:%d%%"></div></div>
+        </span>
+        <span class="valore">%d/10</span>
+      </div>"""
+            % (e(blocco["icona"]), e(blocco["nome"]), e(etichetta), valore * 10, valore)
+        )
+    return '<div class="punteggi">%s</div>' % "".join(righe)
+
+
+def pagina_risultato(submission, esito):
+    variante = contenuti.VARIANTI[esito["variante"]]
+    archetipo = contenuti.ARCHETIPI[variante["archetipo"]]
+    corpo = """
+<section class="hero">
+  <span class="eyebrow">IL TUO PROFILO È PRONTO</span>
+  <div class="profilo-icona">%s</div>
+  <h1>%s, sei un %s</h1>
+</section>
+<div class="contenuto">
+  <div class="card sollevata">
+    %s
+    <p>%s</p>
+  </div>
+  <div class="card">
+    <h2>Il tuo punto di partenza</h2>
+    <p>%s</p>
+    <a class="bottone largo" href="/risultato/prossimo-passo">Continua <span>→</span></a>
+  </div>
+</div>
+""" % (
+        e(archetipo["icona"]),
+        e(submission["nome"]),
+        e(archetipo["nome"]),
+        _blocco_punteggi(esito),
+        e(archetipo["descrizione"]),
+        e(variante["punto_a"]),
+    )
+    return pagina("Test Onda, il tuo profilo", corpo)
+
+
+def pagina_prossimo_passo(submission, esito):
+    variante = contenuti.VARIANTI[esito["variante"]]
+    w = contenuti.WORKSHOP
+    teaser = "".join(
+        "<li><span>%s</span><span>%s</span></li>" % (e(icona), e(testo))
+        for icona, testo in w["teaser"]
+    )
+    corpo = """
+<div class="contenuto">
+  <div class="card">
+    <div class="messaggio-andrea">
+      <p>%s, %s</p>
+      <p><strong>Ti ritrovi in questo?</strong></p>
+      <div class="firma">Andrea Acconcia<span>Il Coach dell'Anima</span></div>
+    </div>
+  </div>
+  <div class="card">
+    <span class="eyebrow" style="color:#0C7A45">%s</span>
+    <h2>%s</h2>
+    <div class="data-workshop">%s</div>
+    <p>%s</p>
+    <div class="teaser"><ul>%s</ul></div>
+    <p class="nota">%s</p>
+    <form method="post" action="/preiscrizione">
+      <button type="submit" class="bottone largo">%s <span>→</span></button>
+    </form>
+    <a class="link-secondario" href="/rifai">Rifai il quiz</a>
+  </div>
+</div>
+""" % (
+        e(submission["nome"]),
+        e(variante["messaggio"][0].lower() + variante["messaggio"][1:]),
+        e(w["eyebrow"]),
+        e(w["titolo"]),
+        e(w["sottotitolo"]),
+        e(w["paragrafo"]),
+        teaser,
+        e(w["nota"]),
+        e(w["cta"]),
+    )
+    return pagina("Test Onda, il prossimo passo", corpo)
+
+
+def pagina_conferma(submission):
+    corpo = """
+<section class="hero">
+  <div class="profilo-icona">✅</div>
+  <h1>Ci siamo, %s</h1>
+  <p>La tua pre-iscrizione al workshop è arrivata.</p>
+</section>
+<div class="contenuto stretto">
+  <div class="card sollevata">
+    <h2>Cosa succede adesso</h2>
+    <p>Un coach del team ti scrive su WhatsApp al numero che hai lasciato, entro 48 ore,
+    per completare l'iscrizione e rispondere alle tue domande.</p>
+    <p>Nel frattempo salva le date: <strong>22-25 Ottobre, online</strong>.</p>
+    <div class="firma">Andrea Acconcia<span>Il Coach dell'Anima</span></div>
+  </div>
+</div>
+""" % e(submission["nome"])
+    return pagina("Test Onda, pre-iscrizione inviata", corpo)
+
+
+def pagina_admin(righe):
+    intestazioni = [
+        "Data", "Nome", "Cognome", "Email", "Telefono", "Consenso",
+        "Crescita", "Azione", "Cambiamento", "Segmento", "Variante",
+        "Archetipo", "Pre-iscrizione",
+    ]
+    celle = "".join("<th>%s</th>" % e(t) for t in intestazioni)
+    corpi = []
+    for r in righe:
+        corpi.append(
+            "<tr>" + "".join(
+                "<td>%s</td>" % e(v)
+                for v in (
+                    r["creata_il"], r["nome"], r["cognome"], r["email"], r["telefono"],
+                    "sì" if r["consenso"] else "no",
+                    "%g (%s)" % (r["punti_a"], r["livello_a"]),
+                    "%g (%s)" % (r["punti_b"], r["livello_b"]),
+                    "%g (%s)" % (r["punti_c"], r["livello_c"]),
+                    r["etichetta_interna"], r["variante"], r["archetipo"],
+                    "sì" if r["preiscrizione"] else "no",
+                )
+            ) + "</tr>"
+        )
+    corpo = """
+<div class="contenuto" style="max-width:1100px">
+  <div class="card">
+    <h2>Submission (%d)</h2>
+    <p><a class="bottone fantasma" href="/admin/export.csv">Scarica CSV</a></p>
+    <div class="tabella-wrapper">
+      <table class="admin"><thead><tr>%s</tr></thead><tbody>%s</tbody></table>
+    </div>
+  </div>
+</div>
+""" % (len(righe), celle, "".join(corpi))
+    return pagina("Test Onda, area team", corpo)
+
+
+# --------------------------------------------------------------------------
+# Handler HTTP
+# --------------------------------------------------------------------------
+
+class Handler(BaseHTTPRequestHandler):
+    server_version = "TestOnda/1.0"
+
+    # ------------------------------------------------------------ utilità
+
+    def _cookie(self, nome):
+        intestazione = self.headers.get("Cookie")
+        if not intestazione:
+            return None
+        biscotti = SimpleCookie()
+        biscotti.load(intestazione)
+        morso = biscotti.get(nome)
+        return morso.value if morso else None
+
+    def _rispondi(self, corpo, stato=HTTPStatus.OK, tipo="text/html; charset=utf-8", cookie=None):
+        dati = corpo.encode("utf-8") if isinstance(corpo, str) else corpo
+        self.send_response(stato)
+        self.send_header("Content-Type", tipo)
+        self.send_header("Content-Length", str(len(dati)))
+        self.send_header("Cache-Control", "no-store")
+        for nome, valore in (cookie or []):
+            self.send_header(
+                "Set-Cookie",
+                "%s=%s; Path=/; HttpOnly; SameSite=Lax; Max-Age=%d" % (nome, valore, 60 * 60 * 12),
+            )
+        self.end_headers()
+        self.wfile.write(dati)
+
+    def _redirect(self, percorso, cookie=None):
+        self.send_response(HTTPStatus.SEE_OTHER)
+        self.send_header("Location", percorso)
+        self.send_header("Cache-Control", "no-store")
+        for nome, valore in (cookie or []):
+            self.send_header(
+                "Set-Cookie",
+                "%s=%s; Path=/; HttpOnly; SameSite=Lax; Max-Age=%d" % (nome, valore, 60 * 60 * 12),
+            )
+        self.end_headers()
+
+    def _corpo_form(self):
+        lunghezza = int(self.headers.get("Content-Length") or 0)
+        grezzo = self.rfile.read(lunghezza).decode("utf-8") if lunghezza else ""
+        return {k: v[0] for k, v in urllib.parse.parse_qs(grezzo, keep_blank_values=True).items()}
+
+    def _sessione(self):
+        return archivio.leggi_sessione(self._cookie("onda_sid"))
+
+    def _submission(self):
+        return archivio.leggi_submission(self._cookie("onda_rid"))
+
+    def _prima_senza_risposta(self, risposte):
+        for indice, domanda in enumerate(contenuti.DOMANDE):
+            if domanda["id"] not in risposte:
+                return indice
+        return TOTALE_DOMANDE
+
+    def _autorizzato_admin(self):
+        intestazione = self.headers.get("Authorization", "")
+        if not intestazione.startswith("Basic "):
+            return False
+        try:
+            decodificato = base64.b64decode(intestazione[6:]).decode("utf-8")
+        except Exception:
+            return False
+        _, _, password = decodificato.partition(":")
+        return hmac.compare_digest(password, PASSWORD_ADMIN)
+
+    def _chiedi_password(self):
+        self.send_response(HTTPStatus.UNAUTHORIZED)
+        self.send_header("WWW-Authenticate", 'Basic realm="Test Onda"')
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def log_message(self, formato, *args):
+        print("%s %s" % (self.address_string(), formato % args))
+
+    # ---------------------------------------------------------------- GET
+
+    def do_GET(self):
+        parsed = urllib.parse.urlparse(self.path)
+        percorso = parsed.path.rstrip("/") or "/"
+        query = urllib.parse.parse_qs(parsed.query)
+
+        if percorso == "/":
+            return self._rispondi(pagina_landing())
+
+        if percorso == "/statico/stile.css":
+            return self._file_statico("stile.css", "text/css; charset=utf-8")
+
+        if percorso == "/quiz":
+            sessione = self._sessione()
+            if sessione is None:
+                return self._redirect("/")
+            prima = self._prima_senza_risposta(sessione["risposte"])
+            if prima >= TOTALE_DOMANDE and "d" not in query:
+                return self._redirect("/contatti")
+            try:
+                richiesto = int(query.get("d", [prima])[0])
+            except ValueError:
+                richiesto = prima
+            # non si salta avanti: al massimo la prima domanda ancora senza risposta
+            richiesto = max(0, min(richiesto, min(prima, TOTALE_DOMANDE - 1)))
+            domanda = contenuti.DOMANDE[richiesto]
+            return self._rispondi(
+                pagina_domanda(richiesto, sessione["risposte"].get(domanda["id"]))
+            )
+
+        if percorso == "/contatti":
+            sessione = self._sessione()
+            if sessione is None:
+                return self._redirect("/")
+            if self._prima_senza_risposta(sessione["risposte"]) < TOTALE_DOMANDE:
+                return self._redirect("/quiz")
+            return self._rispondi(pagina_contatti(sessione))
+
+        if percorso == "/risultato":
+            submission = self._submission()
+            if submission is None:
+                return self._redirect("/")
+            esito = punteggio.calcola(self._risposte_submission(submission))
+            return self._rispondi(pagina_risultato(submission, esito))
+
+        if percorso == "/risultato/prossimo-passo":
+            submission = self._submission()
+            if submission is None:
+                return self._redirect("/")
+            esito = punteggio.calcola(self._risposte_submission(submission))
+            return self._rispondi(pagina_prossimo_passo(submission, esito))
+
+        if percorso == "/conferma":
+            submission = self._submission()
+            if submission is None:
+                return self._redirect("/")
+            return self._rispondi(pagina_conferma(submission))
+
+        if percorso == "/rifai":
+            archivio.elimina_sessione(self._cookie("onda_sid"))
+            return self._redirect("/")
+
+        if percorso == "/admin":
+            if not self._autorizzato_admin():
+                return self._chiedi_password()
+            return self._rispondi(pagina_admin(archivio.elenco_submission()))
+
+        if percorso == "/admin/export.csv":
+            if not self._autorizzato_admin():
+                return self._chiedi_password()
+            return self._esporta_csv()
+
+        return self._rispondi(pagina("Test Onda", '<div class="contenuto"><div class="card">'
+                                     "<h2>Pagina non trovata</h2>"
+                                     '<p><a href="/">Torna all\'inizio</a></p></div></div>'),
+                              HTTPStatus.NOT_FOUND)
+
+    # --------------------------------------------------------------- POST
+
+    def do_POST(self):
+        percorso = urllib.parse.urlparse(self.path).path.rstrip("/") or "/"
+        dati = self._corpo_form()
+
+        if percorso == "/inizia":
+            nome = dati.get("nome", "").strip()
+            cognome = dati.get("cognome", "").strip()
+            if not nome or not cognome:
+                return self._rispondi(
+                    pagina_landing("Scrivi nome e cognome per iniziare.", nome, cognome)
+                )
+            sessione_id = secrets.token_urlsafe(16)
+            archivio.crea_sessione(sessione_id, nome, cognome)
+            return self._redirect("/quiz", cookie=[("onda_sid", sessione_id)])
+
+        if percorso == "/quiz":
+            sessione = self._sessione()
+            if sessione is None:
+                return self._redirect("/")
+            indice = max(0, min(int(dati.get("d", "0") or 0), TOTALE_DOMANDE - 1))
+
+            if dati.get("azione") == "indietro":
+                if indice == 0:
+                    return self._redirect("/")
+                return self._redirect("/quiz?d=%d" % (indice - 1))
+
+            grezza = dati.get("risposta")
+            if grezza is None or grezza == "":
+                return self._redirect("/quiz?d=%d" % indice)
+
+            domanda = contenuti.DOMANDE[indice]
+            valore = int(grezza)
+            if domanda["tipo"] == "scala":
+                valore = max(1, min(10, valore))
+            else:
+                valore = max(0, min(len(domanda["opzioni"]) - 1, valore))
+            risposte = dict(sessione["risposte"])
+            risposte[domanda["id"]] = valore
+            archivio.salva_risposte(sessione["id"], risposte)
+
+            if indice + 1 >= TOTALE_DOMANDE:
+                return self._redirect("/contatti")
+            return self._redirect("/quiz?d=%d" % (indice + 1))
+
+        if percorso == "/contatti":
+            sessione = self._sessione()
+            if sessione is None:
+                return self._redirect("/")
+            valori = {
+                "nome": dati.get("nome", "").strip(),
+                "cognome": dati.get("cognome", "").strip(),
+                "email": dati.get("email", "").strip(),
+                "telefono": dati.get("telefono", "").strip(),
+                "consenso": dati.get("consenso") == "1",
+            }
+            errore = _valida_contatti(valori)
+            if errore:
+                return self._rispondi(pagina_contatti(sessione, errore, valori))
+
+            esito = punteggio.calcola(sessione["risposte"])
+            submission_id = secrets.token_urlsafe(16)
+            archivio.crea_submission(submission_id, valori, sessione["risposte"], esito)
+            archivio.elimina_sessione(sessione["id"])
+            return self._redirect("/risultato", cookie=[("onda_rid", submission_id)])
+
+        if percorso == "/preiscrizione":
+            submission = self._submission()
+            if submission is None:
+                return self._redirect("/")
+            if not submission["preiscrizione"]:
+                archivio.segna_preiscrizione(submission["id"])
+                archivio.accoda_whatsapp(
+                    submission["nome"], submission["cognome"], submission["telefono"]
+                )
+            return self._redirect("/conferma")
+
+        return self._redirect("/")
+
+    # ------------------------------------------------------------- helper
+
+    def _risposte_submission(self, submission):
+        return json.loads(submission["risposte"])
+
+    def _file_statico(self, nome_file, tipo):
+        percorso = os.path.join(CARTELLA, "statico", nome_file)
+        try:
+            with open(percorso, "rb") as f:
+                contenuto = f.read()
+        except OSError:
+            return self._rispondi("not found", HTTPStatus.NOT_FOUND, "text/plain")
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", tipo)
+        self.send_header("Content-Length", str(len(contenuto)))
+        self.end_headers()
+        self.wfile.write(contenuto)
+
+    def _esporta_csv(self):
+        buffer = io.StringIO()
+        scrittore = csv.writer(buffer)
+        colonne = [
+            "id", "creata_il", "nome", "cognome", "email", "telefono", "consenso",
+            "punti_crescita", "livello_crescita", "punti_azione", "livello_azione",
+            "punti_cambiamento", "livello_cambiamento", "etichetta_interna",
+            "variante", "archetipo", "preiscrizione", "preiscrizione_il",
+        ] + [d["id"] for d in contenuti.DOMANDE]
+        scrittore.writerow(colonne)
+        for r in archivio.elenco_submission(limite=100000):
+            risposte = json.loads(r["risposte"])
+            riga = [
+                r["id"], r["creata_il"], r["nome"], r["cognome"], r["email"], r["telefono"],
+                r["consenso"], r["punti_a"], r["livello_a"], r["punti_b"], r["livello_b"],
+                r["punti_c"], r["livello_c"], r["etichetta_interna"], r["variante"],
+                r["archetipo"], r["preiscrizione"], r["preiscrizione_il"] or "",
+            ]
+            for domanda in contenuti.DOMANDE:
+                valore = risposte.get(domanda["id"])
+                if valore is None:
+                    riga.append("")
+                elif domanda["tipo"] == "scala":
+                    riga.append(valore)
+                else:
+                    riga.append(domanda["opzioni"][valore][0])
+            scrittore.writerow(riga)
+        dati = buffer.getvalue().encode("utf-8-sig")
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "text/csv; charset=utf-8")
+        self.send_header("Content-Disposition", 'attachment; filename="test_onda.csv"')
+        self.send_header("Content-Length", str(len(dati)))
+        self.end_headers()
+        self.wfile.write(dati)
+
+
+def _valida_contatti(valori):
+    if not valori["nome"] or not valori["cognome"]:
+        return "Servono nome e cognome."
+    email = valori["email"]
+    if "@" not in email or "." not in email.split("@")[-1]:
+        return "Controlla l'indirizzo email."
+    cifre = [c for c in valori["telefono"] if c.isdigit()]
+    if len(cifre) < 8:
+        return "Controlla il numero di telefono."
+    if not valori["consenso"]:
+        return "Serve il consenso al trattamento dei dati per proseguire."
+    return None
+
+
+def main():
+    archivio.inizializza()
+    server = ThreadingHTTPServer((INDIRIZZO, PORTA), Handler)
+    print("Test Onda in ascolto su http://%s:%d" % (INDIRIZZO, PORTA))
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+
+
+if __name__ == "__main__":
+    main()
