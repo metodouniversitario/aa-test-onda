@@ -72,12 +72,39 @@ interna, e da questa esce una delle 6 varianti di testo, raggruppate in 3 archet
 Surfista, Nuotatore, Osservatore. Alla persona vengono mostrati solo il nome dell'archetipo,
 tre valori su 10 con etichetta discorsiva, il punto di partenza e il messaggio di Andrea.
 
+## Deploy su Railway
+
+Il repository è già pronto: `Procfile`, `railway.json` e `requirements.txt` (vuoto, non
+servono dipendenze) bastano a Railway per costruire e avviare il servizio, che ascolta sulla
+porta indicata dalla variabile `PORT`.
+
+1. Su [railway.com](https://railway.com): **New Project**, poi **Deploy from GitHub repo** e
+   scegli `metodouniversitario/aa-test-onda`.
+2. **Settings, Source**: controlla che il branch sia quello che vuoi pubblicare.
+3. **Variables**: aggiungi `TEST_ONDA_ADMIN_PASSWORD` con una password tua, e
+   `TEST_ONDA_DATA_DIR` con valore `/data`.
+4. **Storage, Add Volume**: mount path `/data`. Senza volume il disco di Railway viene
+   azzerato a ogni nuovo deploy e i test raccolti andrebbero persi.
+5. **Settings, Networking, Generate Domain**: è il link pubblico del quiz.
+
+La dashboard sta su `https://IL-TUO-DOMINIO/admin`: il browser chiede utente e password, il
+nome utente è libero, la password è quella impostata al punto 3. Se ti dimentichi di
+impostarla, il servizio ne genera una casuale a ogni avvio e la scrive nei log di deploy,
+così la dashboard non resta mai protetta da una password prevedibile.
+
 ## Area team
 
 `/admin`, protetta da password (autenticazione HTTP di base, password in
-`TEST_ONDA_ADMIN_PASSWORD`): tabella delle submission con contatti, punteggi per blocco,
-etichetta interna, variante e stato della pre-iscrizione. Export completo, risposta per
-risposta, su `/admin/export.csv`.
+`TEST_ONDA_ADMIN_PASSWORD`):
+
+- riepilogo in cima: test completati, pre-iscrizioni, quanti Surfisti, Nuotatori e Osservatori
+- tabella di chi ha fatto il test: data, contatti, profilo, punteggi per blocco, segmento
+  interno e stato della pre-iscrizione
+- `Apri` su ogni riga porta al dettaglio con le 16 risposte, una per una
+- `/admin/export.csv` scarica tutto, risposta per risposta, apribile in Excel
+
+Ogni test completato viene salvato nel momento in cui la persona lascia i contatti, anche se
+poi non invia la pre-iscrizione.
 
 ## Punti aperti e scelte di implementazione
 

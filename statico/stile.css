@@ -523,3 +523,35 @@ table.admin th { background: var(--grigio-chiaro); }
   .scala { grid-template-columns: repeat(5, 1fr); }
   .pillola-test { display: none; }
 }
+
+/* ------------------------------------------------------ dashboard team */
+
+.statistiche {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+.statistica {
+  border: 1px solid var(--bordo);
+  border-radius: 18px;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.statistica .numero {
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.statistica .voce {
+  font-size: 13px;
+  color: var(--grigio);
+}
+
+table.admin a { color: var(--verde); font-weight: 600; }
+
+table.admin td:nth-child(3) { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }

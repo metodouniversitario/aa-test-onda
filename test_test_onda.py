@@ -4,6 +4,7 @@
 Si avvia con: python3 -m unittest test_test_onda
 """
 
+import html
 import itertools
 import json
 import os
@@ -57,6 +58,14 @@ class Cliente:
 
     def get(self, percorso):
         with self.opener.open(self.base + percorso) as r:
+            return r.geturl(), r.read().decode("utf-8")
+
+    def get_admin(self, percorso, password="onda"):
+        import base64
+        richiesta = urllib.request.Request(self.base + percorso)
+        chiave = base64.b64encode(("team:%s" % password).encode()).decode()
+        richiesta.add_header("Authorization", "Basic " + chiave)
+        with self.opener.open(richiesta) as r:
             return r.geturl(), r.read().decode("utf-8")
 
     def post(self, percorso, dati):
@@ -229,6 +238,37 @@ class TestFlusso(unittest.TestCase):
             cliente = Cliente(base)
             url, _ = cliente.get("/risultato")
             self.assertEqual(url.rstrip("/"), base)
+
+    def test_dashboard_mostra_i_test_completati(self):
+        with ServerDiProva() as base:
+            cliente = Cliente(base)
+            cliente.post("/inizia", {"nome": "Sara", "cognome": "Neri"})
+            for indice, domanda in enumerate(contenuti.DOMANDE):
+                cliente.post("/quiz", {
+                    "d": str(indice),
+                    "risposta": "7" if domanda["tipo"] == "scala" else "0",
+                })
+            cliente.post("/contatti", {
+                "nome": "Sara", "cognome": "Neri", "email": "sara@example.com",
+                "telefono": "3339998877", "consenso": "1",
+            })
+            cliente.post("/preiscrizione", {})
+
+            _, dashboard = cliente.get_admin("/admin")
+            self.assertIn("Dashboard Test Onda", dashboard)
+            self.assertIn("sara@example.com", dashboard)
+            self.assertIn("Test completati", dashboard)
+
+            # dal riepilogo si apre il dettaglio con tutte le risposte
+            id_submission = re.search(r'/admin/dettaglio\?id=([^"]+)', dashboard).group(1)
+            _, dettaglio = cliente.get_admin("/admin/dettaglio?id=" + id_submission)
+            self.assertIn("Sara", dettaglio)
+            self.assertIn("Le sue risposte", dettaglio)
+            for domanda in contenuti.DOMANDE:
+                self.assertIn(html.escape(domanda["testo"], quote=True), dettaglio)
+
+            _, csv_testo = cliente.get_admin("/admin/export.csv")
+            self.assertIn("sara@example.com", csv_testo)
 
     def test_area_team_protetta(self):
         with ServerDiProva() as base:

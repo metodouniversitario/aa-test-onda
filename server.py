@@ -27,9 +27,25 @@ import archivio
 import contenuti
 import punteggio
 
-PORTA = int(os.environ.get("TEST_ONDA_PORT", "8000"))
+# Railway (e la maggior parte degli hosting) passa la porta in PORT
+PORTA = int(os.environ.get("PORT") or os.environ.get("TEST_ONDA_PORT") or 8000)
 INDIRIZZO = os.environ.get("TEST_ONDA_HOST", "0.0.0.0")
-PASSWORD_ADMIN = os.environ.get("TEST_ONDA_ADMIN_PASSWORD", "onda")
+IN_PRODUZIONE = bool(os.environ.get("RAILWAY_ENVIRONMENT") or os.environ.get("TEST_ONDA_PRODUZIONE"))
+
+
+def _password_admin():
+    """La dashboard contiene dati personali: online non deve mai restare
+    protetta da una password di default. Se la variabile di ambiente manca,
+    ne viene generata una casuale e stampata nei log di avvio."""
+    scelta = os.environ.get("TEST_ONDA_ADMIN_PASSWORD")
+    if scelta:
+        return scelta, False
+    if IN_PRODUZIONE:
+        return secrets.token_urlsafe(12), True
+    return "onda", False
+
+
+PASSWORD_ADMIN, PASSWORD_GENERATA = _password_admin()
 CARTELLA = os.path.dirname(os.path.abspath(__file__))
 TOTALE_DOMANDE = len(contenuti.DOMANDE)
 
@@ -358,41 +374,130 @@ def pagina_conferma(submission):
     return pagina("Test Onda, pre-iscrizione inviata", corpo)
 
 
+def _riepilogo(righe):
+    totale = len(righe)
+    preiscritti = sum(1 for r in righe if r["preiscrizione"])
+    per_archetipo = {}
+    for r in righe:
+        per_archetipo[r["archetipo"]] = per_archetipo.get(r["archetipo"], 0) + 1
+    tessere = [
+        ("Test completati", totale),
+        ("Pre-iscrizioni", preiscritti),
+    ]
+    for chiave in ("surfista", "nuotatore", "osservatore"):
+        archetipo = contenuti.ARCHETIPI[chiave]
+        tessere.append(
+            ("%s %s" % (archetipo["icona"], archetipo["nome"]), per_archetipo.get(chiave, 0))
+        )
+    return "".join(
+        '<div class="statistica"><span class="numero">%s</span><span class="voce">%s</span></div>'
+        % (e(valore), e(nome))
+        for nome, valore in tessere
+    )
+
+
 def pagina_admin(righe):
     intestazioni = [
-        "Data", "Nome", "Cognome", "Email", "Telefono", "Consenso",
-        "Crescita", "Azione", "Cambiamento", "Segmento", "Variante",
-        "Archetipo", "Pre-iscrizione",
+        "Data", "Nome", "Email", "Telefono", "Profilo", "Crescita", "Azione",
+        "Cambiamento", "Segmento", "Pre-iscrizione", "",
     ]
     celle = "".join("<th>%s</th>" % e(t) for t in intestazioni)
     corpi = []
     for r in righe:
+        archetipo = contenuti.ARCHETIPI[r["archetipo"]]
         corpi.append(
             "<tr>" + "".join(
-                "<td>%s</td>" % e(v)
+                "<td>%s</td>" % v
                 for v in (
-                    r["creata_il"], r["nome"], r["cognome"], r["email"], r["telefono"],
-                    "sì" if r["consenso"] else "no",
-                    "%g (%s)" % (r["punti_a"], r["livello_a"]),
-                    "%g (%s)" % (r["punti_b"], r["livello_b"]),
-                    "%g (%s)" % (r["punti_c"], r["livello_c"]),
-                    r["etichetta_interna"], r["variante"], r["archetipo"],
+                    e(r["creata_il"].replace("T", " ")[:16]),
+                    e("%s %s" % (r["nome"], r["cognome"])),
+                    e(r["email"]),
+                    e(r["telefono"]),
+                    "%s %s" % (e(archetipo["icona"]), e(archetipo["nome"])),
+                    "%g (%s)" % (r["punti_a"], e(r["livello_a"].lower())),
+                    "%g (%s)" % (r["punti_b"], e(r["livello_b"].lower())),
+                    "%g (%s)" % (r["punti_c"], e(r["livello_c"].lower())),
+                    e(r["etichetta_interna"]),
                     "sì" if r["preiscrizione"] else "no",
+                    '<a href="/admin/dettaglio?id=%s">Apri</a>' % e(r["id"]),
                 )
             ) + "</tr>"
         )
+    if not righe:
+        corpi.append('<tr><td colspan="11">Ancora nessun test completato.</td></tr>')
     corpo = """
-<div class="contenuto" style="max-width:1100px">
+<div class="contenuto" style="max-width:1200px">
   <div class="card">
-    <h2>Submission (%d)</h2>
-    <p><a class="bottone fantasma" href="/admin/export.csv">Scarica CSV</a></p>
+    <h2>Dashboard Test Onda</h2>
+    <div class="statistiche">%s</div>
+    <p style="margin-top:18px"><a class="bottone fantasma" href="/admin/export.csv">Scarica tutto in CSV</a></p>
+  </div>
+  <div class="card">
+    <h2>Chi ha fatto il test</h2>
     <div class="tabella-wrapper">
       <table class="admin"><thead><tr>%s</tr></thead><tbody>%s</tbody></table>
     </div>
   </div>
 </div>
-""" % (len(righe), celle, "".join(corpi))
-    return pagina("Test Onda, area team", corpo)
+""" % (_riepilogo(righe), celle, "".join(corpi))
+    return pagina("Test Onda, dashboard", corpo)
+
+
+def pagina_dettaglio(submission):
+    risposte = json.loads(submission["risposte"])
+    esito = punteggio.calcola(risposte)
+    archetipo = contenuti.ARCHETIPI[submission["archetipo"]]
+
+    elenco = []
+    for indice, domanda in enumerate(contenuti.DOMANDE):
+        valore = risposte.get(domanda["id"])
+        if valore is None:
+            testo = "(nessuna risposta)"
+        elif domanda["tipo"] == "scala":
+            testo = "%s su 10" % valore
+        else:
+            testo = domanda["opzioni"][valore][0]
+        elenco.append(
+            "<tr><td>%d</td><td>%s</td><td>%s</td><td>%s</td></tr>"
+            % (indice + 1, e(contenuti.BLOCCHI[domanda["blocco"]]["nome"]),
+               e(domanda["testo"]), e(testo))
+        )
+
+    corpo = """
+<div class="contenuto" style="max-width:900px">
+  <div class="card">
+    <p><a href="/admin">← Torna alla dashboard</a></p>
+    <h2>%s %s</h2>
+    <p>%s, %s<br>Test completato il %s</p>
+    <p>Profilo: <strong>%s %s</strong>, variante %d, segmento %s<br>
+    Crescita %g (%s), Azione %g (%s), Cambiamento %g (%s), bonus gap %g<br>
+    Pre-iscrizione: <strong>%s</strong></p>
+  </div>
+  <div class="card">
+    <h2>Le sue risposte</h2>
+    <div class="tabella-wrapper">
+      <table class="admin">
+        <thead><tr><th>#</th><th>Blocco</th><th>Domanda</th><th>Risposta</th></tr></thead>
+        <tbody>%s</tbody>
+      </table>
+    </div>
+  </div>
+</div>
+""" % (
+        e(submission["nome"]), e(submission["cognome"]),
+        e(submission["email"]), e(submission["telefono"]),
+        e(submission["creata_il"].replace("T", " ")[:16]),
+        e(archetipo["icona"]), e(archetipo["nome"]),
+        submission["variante"], e(submission["etichetta_interna"]),
+        submission["punti_a"], e(submission["livello_a"].lower()),
+        submission["punti_b"], e(submission["livello_b"].lower()),
+        submission["punti_c"], e(submission["livello_c"].lower()),
+        esito["bonus_gap"],
+        "sì, il %s" % e((submission["preiscrizione_il"] or "").replace("T", " ")[:16])
+        if submission["preiscrizione"] else "no",
+        "".join(elenco),
+    )
+    return pagina("Test Onda, dettaglio", corpo)
 
 
 # --------------------------------------------------------------------------
@@ -542,6 +647,14 @@ class Handler(BaseHTTPRequestHandler):
             if not self._autorizzato_admin():
                 return self._chiedi_password()
             return self._rispondi(pagina_admin(archivio.elenco_submission()))
+
+        if percorso == "/admin/dettaglio":
+            if not self._autorizzato_admin():
+                return self._chiedi_password()
+            submission = archivio.leggi_submission(query.get("id", [""])[0])
+            if submission is None:
+                return self._redirect("/admin")
+            return self._rispondi(pagina_dettaglio(submission))
 
         if percorso == "/admin/export.csv":
             if not self._autorizzato_admin():
@@ -705,6 +818,11 @@ def main():
     archivio.inizializza()
     server = ThreadingHTTPServer((INDIRIZZO, PORTA), Handler)
     print("Test Onda in ascolto su http://%s:%d" % (INDIRIZZO, PORTA))
+    print("Dati in %s" % archivio.CARTELLA_DATI)
+    if PASSWORD_GENERATA:
+        print("ATTENZIONE: TEST_ONDA_ADMIN_PASSWORD non impostata.")
+        print("Password temporanea della dashboard: %s" % PASSWORD_ADMIN)
+        print("Impostala fra le variabili del servizio per averne una stabile.")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
