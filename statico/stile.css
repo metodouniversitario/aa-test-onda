@@ -397,35 +397,29 @@ html, body {
   display: flex;
   align-items: center;
   gap: 12px;
-  border: 1px solid var(--bordo);
+  background: var(--grigio-chiaro);
   border-radius: 18px;
-  padding: 13px 16px;
+  padding: 14px 16px;
 }
 
-.punteggio .icona { font-size: 20px; }
+.punteggio .icona { font-size: 21px; line-height: 1; }
 
-.punteggio .nome { font-weight: 600; }
+.punteggio .nome { font-weight: 700; font-size: 14.5px; flex: 1; }
 
 .punteggio .valore {
-  margin-left: auto;
-  font-weight: 700;
-  color: var(--verde);
+  text-align: right;
+  font-weight: 800;
+  font-size: 21px;
+  color: var(--verde-scuro-2);
+  line-height: 1.1;
 }
 
 .punteggio .etichetta {
-  font-size: 13px;
+  display: block;
+  font-size: 11.5px;
+  font-weight: 600;
   color: var(--grigio);
 }
-
-.barra {
-  height: 6px;
-  border-radius: 999px;
-  background: var(--grigio-chiaro);
-  overflow: hidden;
-  margin-top: 8px;
-}
-
-.barra div { height: 100%; background: var(--verde); border-radius: 999px; }
 
 .messaggio-andrea {
   border-left: 4px solid var(--verde);
@@ -555,3 +549,166 @@ table.admin th { background: var(--grigio-chiaro); }
 table.admin a { color: var(--verde); font-weight: 600; }
 
 table.admin td:nth-child(3) { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+
+
+/* ------------------------------------------------- copy e blocchi aggiunti */
+
+.sottotitolo-hero { white-space: pre-line; }
+
+.sottotitolo-card {
+  color: var(--grigio);
+  font-size: 14px;
+  margin-top: -4px;
+}
+
+.eyebrow.scuro { color: #0C7A45; }
+
+.nota.centrata { text-align: center; }
+
+/* riga di progresso sopra la barra */
+
+.riga-progresso {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--grigio);
+  margin-bottom: 8px;
+}
+
+.contenuto .progresso {
+  border-radius: 999px;
+  overflow: hidden;
+  margin-bottom: 18px;
+  background: var(--bordo);
+}
+
+.riga-alta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.riga-alta .badge { margin-bottom: 0; }
+
+.riga-alta .bottone.fantasma { padding: 8px 14px; font-size: 13px; }
+
+/* box autore e firma di Andrea */
+
+.box-autore {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid var(--bordo);
+}
+
+.avatar {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: rgba(20, 192, 107, 0.14);
+  color: #0C7A45;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 15px;
+  flex: 0 0 auto;
+}
+
+.autore-nome { font-weight: 800; font-size: 14px; }
+
+.autore-ruolo {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #0C7A45;
+}
+
+.andrea-intestazione {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.andrea-intestazione .avatar { width: 36px; height: 36px; font-size: 13px; }
+
+.andrea-nome {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+/* teaser del workshop */
+
+.teaser li {
+  display: list-item;
+  list-style: none;
+  padding: 7px 0;
+  line-height: 1.55;
+}
+
+.teaser strong { display: block; margin-bottom: 6px; }
+
+/* ------------------------------------------- report di chiamata (dashboard) */
+
+.due-colonne {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.colonna {
+  border-radius: 18px;
+  padding: 16px 18px;
+}
+
+.colonna h3 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.colonna ul { margin: 0; padding-left: 18px; }
+
+.colonna li { padding: 5px 0; font-size: 14px; line-height: 1.5; }
+
+.colonna.forze { background: rgba(20, 192, 107, 0.09); }
+.colonna.forze h3 { color: #0C7A45; }
+
+.colonna.attenzioni { background: rgba(255, 201, 60, 0.16); }
+.colonna.attenzioni h3 { color: #8A6200; }
+
+.risposte-chiave {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.risposte-chiave div {
+  border: 1px solid var(--bordo);
+  border-radius: 14px;
+  padding: 10px 14px;
+  font-size: 13.5px;
+}
+
+.risposte-chiave span {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--grigio);
+  margin-bottom: 3px;
+}
+
+.card a { color: #0C7A45; font-weight: 600; }
+.card a.bottone, .card a.link-secondario { font-weight: 700; }

@@ -24,6 +24,7 @@ os.environ["TEST_ONDA_DATA_DIR"] = CARTELLA_TEMP
 import archivio  # noqa: E402
 import contenuti  # noqa: E402
 import punteggio  # noqa: E402
+import report  # noqa: E402
 import server  # noqa: E402
 
 # parole che non devono mai comparire nel sorgente HTML servito alla persona
@@ -75,7 +76,7 @@ class Cliente:
 
 
 def indice_domanda(html_pagina):
-    trovato = re.search(r"Domanda (\d+) di (\d+)", html_pagina)
+    trovato = re.search(r"DOMANDA (\d+) DI (\d+)", html_pagina, re.IGNORECASE)
     return int(trovato.group(1)) - 1 if trovato else None
 
 
@@ -136,7 +137,7 @@ class TestFlusso(unittest.TestCase):
             pagine.append(landing)
             self.assertIn("Sei pronto a diventare il Professionista del Futuro?", landing)
 
-            url, html_pagina = cliente.post("/inizia", {"nome": "Marco", "cognome": "Rossi"})
+            url, html_pagina = cliente.post("/inizia", {"nome": "Marco Rossi"})
             self.assertTrue(url.endswith("/quiz"))
 
             # risponde a tutte e 16 le domande scegliendo sempre la prima opzione
@@ -155,35 +156,37 @@ class TestFlusso(unittest.TestCase):
 
             # email non valida: resta sulla pagina contatti
             _, html_errore = cliente.post("/contatti", {
-                "nome": "Marco", "cognome": "Rossi", "email": "non-valida",
+                "nome": "Marco Rossi", "email": "non-valida",
                 "telefono": "3331234567", "consenso": "1",
             })
             self.assertIn("Controlla l&#x27;indirizzo email", html_errore)
 
             # consenso mancante: non prosegue
             _, html_errore = cliente.post("/contatti", {
-                "nome": "Marco", "cognome": "Rossi", "email": "marco@example.com",
+                "nome": "Marco Rossi", "email": "marco@example.com",
                 "telefono": "3331234567",
             })
             self.assertIn("consenso", html_errore)
 
             url, risultato = cliente.post("/contatti", {
-                "nome": "Marco", "cognome": "Rossi", "email": "marco@example.com",
+                "nome": "Marco Rossi", "email": "marco@example.com",
                 "telefono": "333 1234567", "consenso": "1",
             })
             self.assertTrue(url.endswith("/risultato"), url)
             self.assertIn("IL TUO PROFILO", risultato)
             self.assertIn("Marco", risultato)
             self.assertIn("/10", risultato)
-            self.assertNotIn("Professionista del Futuro", risultato)  # nessun workshop qui
+            self.assertIn("Spinta alla crescita", risultato)
+            self.assertIn("Ti ritrovi in questo?", risultato)
+            self.assertIn("22-25 Ottobre", risultato)
+            self.assertIn("Invia la pre-iscrizione", risultato)  # CTA sempre attiva
             pagine.append(risultato)
 
-            _, passo = cliente.get("/risultato/prossimo-passo")
-            self.assertIn("Ti ritrovi in questo?", passo)
-            self.assertIn("Workshop", passo)
-            self.assertIn("22-25 Ottobre", passo)
-            self.assertIn("Invia la pre-iscrizione", passo)  # CTA sempre attiva
-            pagine.append(passo)
+            # tutto in una schermata, ma il workshop resta dopo profilo e punteggi
+            self.assertLess(risultato.index("IL TUO PROFILO"),
+                            risultato.index("Ti ritrovi in questo?"))
+            self.assertLess(risultato.index("Ti ritrovi in questo?"),
+                            risultato.index("IL PROSSIMO PASSO"))
 
             url, conferma = cliente.post("/preiscrizione", {})
             self.assertTrue(url.endswith("/conferma"), url)
@@ -203,7 +206,7 @@ class TestFlusso(unittest.TestCase):
     def test_bottone_indietro_conserva_la_risposta(self):
         with ServerDiProva() as base:
             cliente = Cliente(base)
-            cliente.post("/inizia", {"nome": "Giulia", "cognome": "Bianchi"})
+            cliente.post("/inizia", {"nome": "Giulia Bianchi"})
 
             cliente.post("/quiz", {"d": "0", "risposta": "1"})   # D1, seconda opzione
             _, html_pagina = cliente.post("/quiz", {"d": "1", "risposta": "2"})  # D2, terza
@@ -226,10 +229,16 @@ class TestFlusso(unittest.TestCase):
             url, _ = cliente.post("/quiz", {"d": "0", "azione": "indietro"})
             self.assertEqual(url.rstrip("/"), base)
 
+    def test_vecchia_rotta_del_workshop_porta_al_risultato(self):
+        with ServerDiProva() as base:
+            cliente = Cliente(base)
+            url, _ = cliente.get("/risultato/prossimo-passo")
+            self.assertEqual(url.rstrip("/"), base)
+
     def test_non_si_salta_avanti(self):
         with ServerDiProva() as base:
             cliente = Cliente(base)
-            cliente.post("/inizia", {"nome": "Luca", "cognome": "Verdi"})
+            cliente.post("/inizia", {"nome": "Luca Verdi"})
             _, html_pagina = cliente.get("/quiz?d=12")
             self.assertEqual(indice_domanda(html_pagina), 0)
 
@@ -242,14 +251,14 @@ class TestFlusso(unittest.TestCase):
     def test_dashboard_mostra_i_test_completati(self):
         with ServerDiProva() as base:
             cliente = Cliente(base)
-            cliente.post("/inizia", {"nome": "Sara", "cognome": "Neri"})
+            cliente.post("/inizia", {"nome": "Sara Neri"})
             for indice, domanda in enumerate(contenuti.DOMANDE):
                 cliente.post("/quiz", {
                     "d": str(indice),
                     "risposta": "7" if domanda["tipo"] == "scala" else "0",
                 })
             cliente.post("/contatti", {
-                "nome": "Sara", "cognome": "Neri", "email": "sara@example.com",
+                "nome": "Sara Neri", "email": "sara@example.com",
                 "telefono": "3339998877", "consenso": "1",
             })
             cliente.post("/preiscrizione", {})
@@ -263,12 +272,35 @@ class TestFlusso(unittest.TestCase):
             id_submission = re.search(r'/admin/dettaglio\?id=([^"]+)', dashboard).group(1)
             _, dettaglio = cliente.get_admin("/admin/dettaglio?id=" + id_submission)
             self.assertIn("Sara", dettaglio)
-            self.assertIn("Le sue risposte", dettaglio)
+            self.assertIn("Tutte le risposte", dettaglio)
             for domanda in contenuti.DOMANDE:
                 self.assertIn(html.escape(domanda["testo"], quote=True), dettaglio)
 
+            self.assertIn("PRIMA DI CHIAMARE", dettaglio)
+            self.assertIn("Punti di forza", dettaglio)
+            self.assertIn("Punti di attenzione", dettaglio)
+
             _, csv_testo = cliente.get_admin("/admin/export.csv")
             self.assertIn("sara@example.com", csv_testo)
+
+    def test_report_sempre_tre_e_tre(self):
+        """Il venditore deve trovare sempre 3 forze e 3 attenzioni, qualunque
+        siano le risposte."""
+        import itertools
+        for indici in itertools.product((0, 1, 2), repeat=4):
+            risposte = {}
+            for posizione, d in enumerate(contenuti.DOMANDE):
+                if d["tipo"] == "scala":
+                    risposte[d["id"]] = (1, 5, 10)[indici[posizione % 4]]
+                else:
+                    risposte[d["id"]] = min(indici[posizione % 4], len(d["opzioni"]) - 1)
+            esito = punteggio.calcola(risposte)
+            scheda = report.genera(risposte, esito, False)
+            self.assertEqual(len(scheda["forze"]), 3)
+            self.assertEqual(len(scheda["attenzioni"]), 3)
+            self.assertEqual(len(set(scheda["forze"])), 3)
+            self.assertEqual(len(set(scheda["attenzioni"])), 3)
+            self.assertTrue(scheda["riassunto"].strip())
 
     def test_area_team_protetta(self):
         with ServerDiProva() as base:

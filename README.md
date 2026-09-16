@@ -36,7 +36,8 @@ python3 -m unittest test_test_onda
 | File | Contenuto |
 |---|---|
 | `server.py` | rotte, rendering delle pagine, sessioni, area team, export CSV |
-| `contenuti.py` | testi: 16 domande con opzioni e punti, 3 archetipi, 6 varianti, blocco workshop |
+| `contenuti.py` | testi: 16 domande con opzioni e punti, 3 archetipi, 6 varianti, copy di landing e workshop |
+| `report.py` | riassunto, punti di forza e di attenzione per il team commerciale |
 | `punteggio.py` | soglie, bonus gap, etichetta interna, scelta della variante |
 | `archivio.py` | SQLite (sessioni e submission) e coda WhatsApp su file |
 | `statico/stile.css` | linguaggio grafico del brand |
@@ -51,8 +52,10 @@ python3 -m unittest test_test_onda
    `test_ogni_combinazione_produce_un_profilo` verifica che non esista un percorso di risposte
    che porti a un vicolo cieco.
 2. **Il workshop non viene mai nominato prima del risultato.** Landing, 16 domande e pagina
-   contatti non lo citano. Compare solo nella seconda schermata di risultato, e nel messaggio
-   di Andrea delle varianti 5 e 6 che la introduce.
+   contatti non lo citano. Il risultato sta tutto in una schermata sola, per non perdere
+   persone in un passaggio in più, ma l'ordine è fisso: prima profilo e punteggi, poi il
+   messaggio di Andrea, e solo in fondo il workshop con il bottone di pre-iscrizione. Un test
+   verifica che quell'ordine non si inverta.
 3. **Niente punteggi nel browser.** Calcolo, soglie, etichetta interna e scelta della variante
    vivono solo lato server: il browser riceve i testi delle domande e, alla fine, il contenuto
    già tradotto. Il test del flusso completo controlla che nel sorgente HTML di tutte le pagine
@@ -100,7 +103,11 @@ così la dashboard non resta mai protetta da una password prevedibile.
 - riepilogo in cima: test completati, pre-iscrizioni, quanti Surfisti, Nuotatori e Osservatori
 - tabella di chi ha fatto il test: data, contatti, profilo, punteggi per blocco, segmento
   interno e stato della pre-iscrizione
-- `Apri` su ogni riga porta al dettaglio con le 16 risposte, una per una
+- `Apri` su ogni riga porta alla scheda della persona: in cima il **report per la chiamata**
+  (riassunto delle risposte, 3 punti di forza e 3 punti di attenzione, le 4 risposte chiave),
+  poi i dati interni e tutte e 16 le risposte una per una. Il report è costruito con regole
+  deterministiche sulle risposte reali (`report.py`): non c'è nulla di inventato, ogni riga
+  corrisponde a qualcosa che la persona ha davvero risposto
 - `/admin/export.csv` scarica tutto, risposta per risposta, apribile in Excel
 
 Ogni test completato viene salvato nel momento in cui la persona lascia i contatti, anche se
@@ -112,6 +119,8 @@ poi non invia la pre-iscrizione.
   accodato in `dati/coda_whatsapp.log`, una riga JSON per persona, pronto per essere ripreso
   da una integrazione futura (Twilio, 360dialog, WhatsApp Business API o una automazione tipo
   Make e Zapier). Resta una decisione da prendere con il team per il lancio.
+- **Copy.** I testi delle domande, del risultato, della landing e del blocco workshop sono
+  quelli esatti delle istruzioni V2, allineati al codice originale del progetto.
 - **Valori mostrati nel risultato.** La specifica elenca, per ogni variante, una terna di
   valori fissa, ma in un paio di casi quella terna non coincide con i livelli che la variante
   può davvero avere (per esempio la variante 2 appartiene al Surfista, dove Cambiamento non

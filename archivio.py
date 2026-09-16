@@ -37,8 +37,7 @@ def inizializza():
             """
             CREATE TABLE IF NOT EXISTS sessioni (
                 id TEXT PRIMARY KEY,
-                nome TEXT NOT NULL DEFAULT '',
-                cognome TEXT NOT NULL DEFAULT '',
+                nome_completo TEXT NOT NULL DEFAULT '',
                 risposte TEXT NOT NULL DEFAULT '{}',
                 creata_il TEXT NOT NULL,
                 aggiornata_il TEXT NOT NULL
@@ -70,12 +69,12 @@ def inizializza():
 
 # ---------------------------------------------------------------- sessioni
 
-def crea_sessione(sessione_id, nome, cognome):
+def crea_sessione(sessione_id, nome_completo):
     with _lock, _connessione() as conn:
         conn.execute(
-            "INSERT OR REPLACE INTO sessioni (id, nome, cognome, risposte, creata_il, aggiornata_il)"
-            " VALUES (?, ?, ?, '{}', ?, ?)",
-            (sessione_id, nome, cognome, _ora(), _ora()),
+            "INSERT OR REPLACE INTO sessioni (id, nome_completo, risposte, creata_il, aggiornata_il)"
+            " VALUES (?, ?, '{}', ?, ?)",
+            (sessione_id, nome_completo, _ora(), _ora()),
         )
 
 
@@ -88,8 +87,7 @@ def leggi_sessione(sessione_id):
         return None
     return {
         "id": riga["id"],
-        "nome": riga["nome"],
-        "cognome": riga["cognome"],
+        "nome_completo": riga["nome_completo"],
         "risposte": json.loads(riga["risposte"]),
     }
 

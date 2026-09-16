@@ -26,6 +26,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import archivio
 import contenuti
 import punteggio
+import report
 
 # Railway (e la maggior parte degli hosting) passa la porta in PORT
 PORTA = int(os.environ.get("PORT") or os.environ.get("TEST_ONDA_PORT") or 8000)
@@ -76,17 +77,14 @@ def attributo(nome, valore):
 HEADER = """
 <header class="header">
   <div class="logo">★</div>
-  <div class="logo-testo">ANDREA ACCONCIA<span>IL COACH DELL'ANIMA</span></div>
+  <div class="logo-testo"><b>ANDREA</b> ACCONCIA<span>IL COACH DELL'ANIMA</span></div>
   <div class="pillola-test">TEST ONDA</div>
 </header>
 """
 
 FOOTER = """
-<footer class="footer">
-  <strong>Andrea Acconcia, Il Coach dell'Anima</strong>
-  Test Onda, percorso di autoconoscenza professionale
-</footer>
-"""
+<footer class="footer">%s</footer>
+""" % contenuti.FOOTER
 
 
 def pagina(titolo, corpo, progresso=None):
@@ -116,51 +114,49 @@ def pagina(titolo, corpo, progresso=None):
 # Pagine
 # --------------------------------------------------------------------------
 
-def pagina_landing(errore=None, nome="", cognome=""):
+def pagina_landing(errore=None, nome=""):
     blocco_errore = '<div class="errore">%s</div>' % e(errore) if errore else ""
+    L = contenuti.LANDING
+    meta = "".join("<span>%s</span>" % e(v) for v in L["meta"])
     corpo = """
 <section class="hero">
-  <span class="eyebrow">QUIZ PROFESSIONISTA DEL FUTURO, GRATUITO</span>
-  <h1>Sei pronto a diventare il Professionista del Futuro?</h1>
-  <p>L'intelligenza artificiale è come un'onda che si avvicina: puoi scegliere di cavalcarla
-  oppure lasciarti travolgere. Questo test ti dice, in modo onesto, a che punto sei oggi.</p>
-  <div class="meta">
-    <span>16 domande</span>
-    <span>6 minuti</span>
-    <span>Profilo personalizzato</span>
-  </div>
+  <span class="eyebrow">%s</span>
+  <h1>%s</h1>
+  <p class="sottotitolo-hero">%s</p>
+  <div class="meta">%s</div>
 </section>
 <div class="contenuto stretto">
   <div class="card sollevata">
     %s
-    <h2>Iniziamo da come ti chiami</h2>
-    <p>Il tuo profilo sarà scritto su misura per te, quindi serve il tuo nome.</p>
     <form method="post" action="/inizia">
       <div class="campo">
-        <label for="nome">Nome</label>
-        <input type="text" id="nome" name="nome" value="%s" required autocomplete="given-name">
+        <label for="nome">%s</label>
+        <input type="text" id="nome" name="nome" value="%s" placeholder="%s"
+               required autocomplete="name">
       </div>
-      <div class="campo">
-        <label for="cognome">Cognome</label>
-        <input type="text" id="cognome" name="cognome" value="%s" required autocomplete="family-name">
-      </div>
-      <button type="submit" class="bottone largo">Inizia il quiz <span>→</span></button>
+      <button type="submit" class="bottone largo">%s <span>&rarr;</span></button>
     </form>
-  </div>
-  <div class="card">
-    <p>Non c'è una risposta giusta e una sbagliata: rispondi di pancia, come ti senti
-    davvero oggi. Alla fine ricevi il tuo punto di partenza, scritto da me.</p>
-    <div class="firma">Andrea Acconcia<span>Il Coach dell'Anima</span></div>
+    <div class="box-autore">
+      <div class="avatar">AA</div>
+      <div>
+        <div class="autore-nome">Andrea Acconcia</div>
+        <div class="autore-ruolo">IL COACH DELL'ANIMA · DAL 2015</div>
+      </div>
+    </div>
   </div>
 </div>
-""" % (blocco_errore, e(nome), e(cognome))
+""" % (
+        e(L["eyebrow"]), e(L["titolo"]), e(L["sottotitolo"]), meta, blocco_errore,
+        e(L["label_nome"]), e(nome), e(L["placeholder_nome"]), e(L["cta"]),
+    )
     return pagina("Test Onda", corpo)
 
 
 def pagina_domanda(indice, risposta_salvata):
     domanda = contenuti.DOMANDE[indice]
     blocco = contenuti.BLOCCHI[domanda["blocco"]]
-    progresso = int(round(indice / TOTALE_DOMANDE * 100))
+    numero = indice + 1
+    percentuale = int(round(numero / TOTALE_DOMANDE * 100))
 
     if domanda["tipo"] == "scala":
         pulsanti = []
@@ -171,9 +167,9 @@ def pagina_domanda(indice, risposta_salvata):
                 % (valore, attributo("class", classe), valore)
             )
         risposte_html = (
-            '<div class="scala">%s</div>'
             '<div class="scala-legenda"><span>%s</span><span>%s</span></div>'
-            % ("".join(pulsanti), e(domanda["etichetta_min"]), e(domanda["etichetta_max"]))
+            '<div class="scala">%s</div>'
+            % (e(domanda["etichetta_min"]), e(domanda["etichetta_max"]), "".join(pulsanti))
         )
     else:
         opzioni = []
@@ -189,28 +185,26 @@ def pagina_domanda(indice, risposta_salvata):
 <div class="contenuto">
   <form method="post" action="/quiz">
     <input type="hidden" name="d" value="%d">
+    <div class="riga-progresso">
+      <span>DOMANDA %d DI %d</span><span>%d%%</span>
+    </div>
+    <div class="progresso"><div style="width:%d%%"></div></div>
     <div class="card">
-      <span class="badge %s">%s %s</span>
+      <div class="riga-alta">
+        <button type="submit" name="azione" value="indietro" class="bottone fantasma">&larr; Indietro</button>
+        <span class="badge %s">%s %s</span>
+      </div>
       <h2>%s</h2>
       %s
-    </div>
-    <div class="riga-navigazione">
-      <button type="submit" name="azione" value="indietro" class="bottone fantasma">← Indietro</button>
-      <span class="contatore">Domanda %d di %d</span>
     </div>
   </form>
 </div>
 """ % (
-        indice,
-        e(blocco["classe"]),
-        e(blocco["icona"]),
-        e(blocco["nome"]),
-        e(domanda["testo"]),
-        risposte_html,
-        indice + 1,
-        TOTALE_DOMANDE,
+        indice, numero, TOTALE_DOMANDE, percentuale, percentuale,
+        e(blocco["classe"]), e(blocco["icona"]), e(blocco["nome"].upper()),
+        e(domanda["testo"]), risposte_html,
     )
-    return pagina("Test Onda, domanda %d" % (indice + 1), corpo, progresso)
+    return pagina("Test Onda, domanda %d" % numero, corpo)
 
 
 def pagina_contatti(sessione, errore=None, valori=None):
@@ -221,38 +215,35 @@ def pagina_contatti(sessione, errore=None, valori=None):
   <div class="card">
     %s
     <h2>Ci siamo quasi!</h2>
-    <p>Ho tutto quello che mi serve per scrivere il tuo profilo. Lasciami i tuoi contatti
-    e te lo mostro subito.</p>
+    <p class="sottotitolo-card">Inserisci i tuoi dati per conoscere la tua situazione attuale.</p>
     <form method="post" action="/contatti">
       <div class="campo">
-        <label for="nome">Nome</label>
-        <input type="text" id="nome" name="nome" value="%s" required autocomplete="given-name">
+        <label for="nome">NOME E COGNOME *</label>
+        <input type="text" id="nome" name="nome" value="%s" required autocomplete="name">
       </div>
       <div class="campo">
-        <label for="cognome">Cognome</label>
-        <input type="text" id="cognome" name="cognome" value="%s" required autocomplete="family-name">
+        <label for="email">EMAIL *</label>
+        <input type="email" id="email" name="email" value="%s" placeholder="Es. mario@email.it"
+               required autocomplete="email">
       </div>
       <div class="campo">
-        <label for="email">Email</label>
-        <input type="email" id="email" name="email" value="%s" required autocomplete="email">
-      </div>
-      <div class="campo">
-        <label for="telefono">Telefono</label>
-        <input type="tel" id="telefono" name="telefono" value="%s" required autocomplete="tel">
+        <label for="telefono">NUMERO DI TELEFONO *</label>
+        <input type="tel" id="telefono" name="telefono" value="%s" placeholder="Es. 333 1234567"
+               required autocomplete="tel">
       </div>
       <label class="consenso">
         <input type="checkbox" name="consenso" value="1"%s>
-        <span>Acconsento al trattamento dei miei dati per essere ricontattato e per ricevere
-        comunicazioni legate a questo percorso.</span>
+        <span>Do il consenso al trattamento dei miei dati personali secondo i Termini di
+        Utilizzo e la Privacy Policy.</span>
       </label>
-      <button type="submit" class="bottone largo">Scopri il mio profilo <span>→</span></button>
+      <button type="submit" class="bottone largo">Scopri il mio profilo <span>&rarr;</span></button>
     </form>
+    <p class="nota centrata">I tuoi dati sono al sicuro e non li condivideremo mai con terzi.</p>
   </div>
 </div>
 """ % (
         blocco_errore,
-        e(valori.get("nome", sessione["nome"])),
-        e(valori.get("cognome", sessione["cognome"])),
+        e(valori.get("nome", sessione["nome_completo"])),
         e(valori.get("email", "")),
         e(valori.get("telefono", "")),
         attributo("checked", bool(valori.get("consenso"))),
@@ -263,95 +254,92 @@ def pagina_contatti(sessione, errore=None, valori=None):
 def _blocco_punteggi(esito):
     righe = []
     for chiave in ("A", "B", "C"):
-        blocco = contenuti.BLOCCHI[chiave]
+        macroarea = contenuti.MACROAREE[chiave]
         valore, etichetta = esito["mostrati"][chiave]
         righe.append(
             """
       <div class="punteggio">
         <span class="icona">%s</span>
-        <span>
-          <span class="nome">%s</span><span class="etichetta">, %s</span>
-          <div class="barra"><div style="width:%d%%"></div></div>
-        </span>
-        <span class="valore">%d/10</span>
+        <span class="nome">%s</span>
+        <span class="valore">%d/10<span class="etichetta">%s</span></span>
       </div>"""
-            % (e(blocco["icona"]), e(blocco["nome"]), e(etichetta), valore * 10, valore)
+            % (e(macroarea["icona"]), e(macroarea["nome"]), valore, e(etichetta))
         )
     return '<div class="punteggi">%s</div>' % "".join(righe)
 
 
 def pagina_risultato(submission, esito):
+    """Profilo, punteggi, messaggio di Andrea e workshop: tutto in una schermata."""
     variante = contenuti.VARIANTI[esito["variante"]]
     archetipo = contenuti.ARCHETIPI[variante["archetipo"]]
+    nome = submission["nome"]
+    w = contenuti.WORKSHOP
+
+    preambolo = contenuti.PREAMBOLO_ANDREA[variante["preambolo"]].format(nome=nome)
+    teaser = "".join("<li>%s</li>" % e(riga) for riga in w["teaser"])
+
     corpo = """
 <section class="hero">
   <span class="eyebrow">IL TUO PROFILO È PRONTO</span>
   <div class="profilo-icona">%s</div>
-  <h1>%s, sei un %s</h1>
+  <h1>Sei un %s</h1>
+  <p>%s, ecco cosa emerge dalle tue risposte:</p>
 </section>
 <div class="contenuto">
   <div class="card sollevata">
     %s
     <p>%s</p>
-  </div>
-  <div class="card">
-    <h2>Il tuo punto di partenza</h2>
     <p>%s</p>
-    <a class="bottone largo" href="/risultato/prossimo-passo">Continua <span>→</span></a>
   </div>
-</div>
-""" % (
-        e(archetipo["icona"]),
-        e(submission["nome"]),
-        e(archetipo["nome"]),
-        _blocco_punteggi(esito),
-        e(archetipo["descrizione"]),
-        e(variante["punto_a"]),
-    )
-    return pagina("Test Onda, il tuo profilo", corpo)
 
-
-def pagina_prossimo_passo(submission, esito):
-    variante = contenuti.VARIANTI[esito["variante"]]
-    w = contenuti.WORKSHOP
-    teaser = "".join(
-        "<li><span>%s</span><span>%s</span></li>" % (e(icona), e(testo))
-        for icona, testo in w["teaser"]
-    )
-    corpo = """
-<div class="contenuto">
   <div class="card">
     <div class="messaggio-andrea">
-      <p>%s, %s</p>
+      <div class="andrea-intestazione">
+        <span class="avatar">AA</span>
+        <span class="andrea-nome">%s</span>
+      </div>
+      <p>%s</p>
+      <p>%s</p>
       <p><strong>Ti ritrovi in questo?</strong></p>
-      <div class="firma">Andrea Acconcia<span>Il Coach dell'Anima</span></div>
     </div>
   </div>
+
   <div class="card">
-    <span class="eyebrow" style="color:#0C7A45">%s</span>
+    <span class="eyebrow scuro">%s</span>
     <h2>%s</h2>
     <div class="data-workshop">%s</div>
     <p>%s</p>
-    <div class="teaser"><ul>%s</ul></div>
+    <div class="teaser">
+      <strong>%s</strong>
+      <ul>%s</ul>
+    </div>
     <p class="nota">%s</p>
     <form method="post" action="/preiscrizione">
-      <button type="submit" class="bottone largo">%s <span>→</span></button>
+      <button type="submit" class="bottone largo">%s <span>&rarr;</span></button>
     </form>
     <a class="link-secondario" href="/rifai">Rifai il quiz</a>
   </div>
 </div>
 """ % (
-        e(submission["nome"]),
-        e(variante["messaggio"][0].lower() + variante["messaggio"][1:]),
+        e(archetipo["icona"]),
+        e(archetipo["nome"]),
+        e(nome),
+        _blocco_punteggi(esito),
+        e(archetipo["descrizione"]),
+        e(variante["punto_a"]),
+        e(contenuti.FIRMA_ANDREA),
+        e(preambolo),
+        e(variante["messaggio"]),
         e(w["eyebrow"]),
         e(w["titolo"]),
         e(w["sottotitolo"]),
         e(w["paragrafo"]),
+        e(w["teaser_intro"]),
         teaser,
         e(w["nota"]),
         e(w["cta"]),
     )
-    return pagina("Test Onda, il prossimo passo", corpo)
+    return pagina("Test Onda, il tuo profilo", corpo)
 
 
 def pagina_conferma(submission):
@@ -367,7 +355,13 @@ def pagina_conferma(submission):
     <p>Un coach del team ti scrive su WhatsApp al numero che hai lasciato, entro 48 ore,
     per completare l'iscrizione e rispondere alle tue domande.</p>
     <p>Nel frattempo salva le date: <strong>22-25 Ottobre, online</strong>.</p>
-    <div class="firma">Andrea Acconcia<span>Il Coach dell'Anima</span></div>
+    <div class="box-autore">
+      <div class="avatar">AA</div>
+      <div>
+        <div class="autore-nome">Andrea Acconcia</div>
+        <div class="autore-ruolo">IL COACH DELL'ANIMA · DAL 2015</div>
+      </div>
+    </div>
   </div>
 </div>
 """ % e(submission["nome"])
@@ -447,6 +441,7 @@ def pagina_dettaglio(submission):
     risposte = json.loads(submission["risposte"])
     esito = punteggio.calcola(risposte)
     archetipo = contenuti.ARCHETIPI[submission["archetipo"]]
+    scheda = report.genera(risposte, esito, bool(submission["preiscrizione"]))
 
     elenco = []
     for indice, domanda in enumerate(contenuti.DOMANDE):
@@ -458,23 +453,52 @@ def pagina_dettaglio(submission):
         else:
             testo = domanda["opzioni"][valore][0]
         elenco.append(
-            "<tr><td>%d</td><td>%s</td><td>%s</td><td>%s</td></tr>"
+            "<tr><td>%d</td><td>%s</td><td>%s</td><td><strong>%s</strong></td></tr>"
             % (indice + 1, e(contenuti.BLOCCHI[domanda["blocco"]]["nome"]),
                e(domanda["testo"]), e(testo))
         )
 
+    forze = "".join("<li>%s</li>" % e(t) for t in scheda["forze"])
+    attenzioni = "".join("<li>%s</li>" % e(t) for t in scheda["attenzioni"])
+    chiave = "".join(
+        "<div><span>%s</span>%s</div>" % (e(etichetta), e(valore or "—"))
+        for etichetta, valore in scheda["risposte_chiave"]
+    )
+
     corpo = """
 <div class="contenuto" style="max-width:900px">
   <div class="card">
-    <p><a href="/admin">← Torna alla dashboard</a></p>
+    <p><a href="/admin">&larr; Torna alla dashboard</a></p>
     <h2>%s %s</h2>
-    <p>%s, %s<br>Test completato il %s</p>
-    <p>Profilo: <strong>%s %s</strong>, variante %d, segmento %s<br>
+    <p class="sottotitolo-card">%s · %s<br>Test completato il %s</p>
+  </div>
+
+  <div class="card">
+    <span class="eyebrow scuro">PRIMA DI CHIAMARE</span>
+    <h2>%s %s</h2>
+    <p>%s</p>
+    <div class="due-colonne">
+      <div class="colonna forze">
+        <h3>Punti di forza</h3>
+        <ul>%s</ul>
+      </div>
+      <div class="colonna attenzioni">
+        <h3>Punti di attenzione</h3>
+        <ul>%s</ul>
+      </div>
+    </div>
+    <div class="risposte-chiave">%s</div>
+  </div>
+
+  <div class="card">
+    <h2>Dati interni</h2>
+    <p>Variante %d, segmento %s<br>
     Crescita %g (%s), Azione %g (%s), Cambiamento %g (%s), bonus gap %g<br>
     Pre-iscrizione: <strong>%s</strong></p>
   </div>
+
   <div class="card">
-    <h2>Le sue risposte</h2>
+    <h2>Tutte le risposte</h2>
     <div class="tabella-wrapper">
       <table class="admin">
         <thead><tr><th>#</th><th>Blocco</th><th>Domanda</th><th>Risposta</th></tr></thead>
@@ -488,6 +512,8 @@ def pagina_dettaglio(submission):
         e(submission["email"]), e(submission["telefono"]),
         e(submission["creata_il"].replace("T", " ")[:16]),
         e(archetipo["icona"]), e(archetipo["nome"]),
+        e(scheda["riassunto"]),
+        forze, attenzioni, chiave,
         submission["variante"], e(submission["etichetta_interna"]),
         submission["punti_a"], e(submission["livello_a"].lower()),
         submission["punti_b"], e(submission["livello_b"].lower()),
@@ -497,7 +523,7 @@ def pagina_dettaglio(submission):
         if submission["preiscrizione"] else "no",
         "".join(elenco),
     )
-    return pagina("Test Onda, dettaglio", corpo)
+    return pagina("Test Onda, %s %s" % (submission["nome"], submission["cognome"]), corpo)
 
 
 # --------------------------------------------------------------------------
@@ -590,6 +616,10 @@ class Handler(BaseHTTPRequestHandler):
         if percorso == "/":
             return self._rispondi(pagina_landing())
 
+        if percorso == "/risultato/prossimo-passo":
+            # il risultato ora sta tutto in una schermata sola
+            return self._redirect("/risultato")
+
         if percorso == "/statico/stile.css":
             return self._file_statico("stile.css", "text/css; charset=utf-8")
 
@@ -625,13 +655,6 @@ class Handler(BaseHTTPRequestHandler):
                 return self._redirect("/")
             esito = punteggio.calcola(self._risposte_submission(submission))
             return self._rispondi(pagina_risultato(submission, esito))
-
-        if percorso == "/risultato/prossimo-passo":
-            submission = self._submission()
-            if submission is None:
-                return self._redirect("/")
-            esito = punteggio.calcola(self._risposte_submission(submission))
-            return self._rispondi(pagina_prossimo_passo(submission, esito))
 
         if percorso == "/conferma":
             submission = self._submission()
@@ -673,14 +696,13 @@ class Handler(BaseHTTPRequestHandler):
         dati = self._corpo_form()
 
         if percorso == "/inizia":
-            nome = dati.get("nome", "").strip()
-            cognome = dati.get("cognome", "").strip()
-            if not nome or not cognome:
+            nome_completo = " ".join(dati.get("nome", "").split())
+            if not nome_completo:
                 return self._rispondi(
-                    pagina_landing("Scrivi nome e cognome per iniziare.", nome, cognome)
+                    pagina_landing("Scrivi nome e cognome per iniziare.", nome_completo)
                 )
             sessione_id = secrets.token_urlsafe(16)
-            archivio.crea_sessione(sessione_id, nome, cognome)
+            archivio.crea_sessione(sessione_id, nome_completo)
             return self._redirect("/quiz", cookie=[("onda_sid", sessione_id)])
 
         if percorso == "/quiz":
@@ -716,15 +738,19 @@ class Handler(BaseHTTPRequestHandler):
             sessione = self._sessione()
             if sessione is None:
                 return self._redirect("/")
+            nome_completo = " ".join(dati.get("nome", "").split())
+            nome, _, cognome = nome_completo.partition(" ")
             valori = {
-                "nome": dati.get("nome", "").strip(),
-                "cognome": dati.get("cognome", "").strip(),
+                "nome": nome,
+                "cognome": cognome,
+                "nome_completo": nome_completo,
                 "email": dati.get("email", "").strip(),
                 "telefono": dati.get("telefono", "").strip(),
                 "consenso": dati.get("consenso") == "1",
             }
             errore = _valida_contatti(valori)
             if errore:
+                valori["nome"] = nome_completo
                 return self._rispondi(pagina_contatti(sessione, errore, valori))
 
             esito = punteggio.calcola(sessione["risposte"])
@@ -802,7 +828,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def _valida_contatti(valori):
     if not valori["nome"] or not valori["cognome"]:
-        return "Servono nome e cognome."
+        return "Scrivi nome e cognome."
     email = valori["email"]
     if "@" not in email or "." not in email.split("@")[-1]:
         return "Controlla l'indirizzo email."
