@@ -127,6 +127,35 @@ class TestPunteggio(unittest.TestCase):
             self.assertIn(esito["archetipo"], contenuti.ARCHETIPI)
 
 
+class TestMigrazione(unittest.TestCase):
+    def test_database_della_versione_precedente(self):
+        """Un database creato prima del campo unico nome e cognome deve
+        continuare a funzionare dopo l'aggiornamento."""
+        import sqlite3
+        cartella = tempfile.mkdtemp(prefix="test_onda_vecchio_")
+        percorso = os.path.join(cartella, "test_onda.db")
+        conn = sqlite3.connect(percorso)
+        conn.executescript("""
+            CREATE TABLE sessioni (
+                id TEXT PRIMARY KEY, nome TEXT NOT NULL DEFAULT '',
+                cognome TEXT NOT NULL DEFAULT '', risposte TEXT NOT NULL DEFAULT '{}',
+                creata_il TEXT NOT NULL, aggiornata_il TEXT NOT NULL);
+            INSERT INTO sessioni VALUES ('vecchia', 'Marco', 'Rossi', '{}', 'ieri', 'ieri');
+        """)
+        conn.commit()
+        conn.close()
+
+        percorso_originale = archivio.PERCORSO_DB
+        archivio.PERCORSO_DB = percorso
+        try:
+            archivio.inizializza()
+            archivio.crea_sessione("nuova", "Giulia Bianchi")
+            self.assertEqual(archivio.leggi_sessione("nuova")["nome_completo"], "Giulia Bianchi")
+            self.assertEqual(archivio.leggi_sessione("vecchia")["nome_completo"], "Marco Rossi")
+        finally:
+            archivio.PERCORSO_DB = percorso_originale
+
+
 class TestFlusso(unittest.TestCase):
     def test_percorso_completo(self):
         with ServerDiProva() as base:

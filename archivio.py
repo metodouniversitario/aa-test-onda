@@ -65,6 +65,24 @@ def inizializza():
             );
             """
         )
+        _migra(conn)
+
+
+def _migra(conn):
+    """Allinea un database creato da una versione precedente.
+
+    `CREATE TABLE IF NOT EXISTS` non tocca le tabelle che esistono già: senza
+    questo passaggio, un database creato prima del campo unico nome e cognome
+    farebbe fallire l'avvio di ogni nuovo quiz.
+    """
+    colonne = {r[1] for r in conn.execute("PRAGMA table_info(sessioni)")}
+    if colonne and "nome_completo" not in colonne:
+        conn.execute("ALTER TABLE sessioni ADD COLUMN nome_completo TEXT NOT NULL DEFAULT ''")
+        if {"nome", "cognome"} <= colonne:
+            conn.execute(
+                "UPDATE sessioni SET nome_completo = trim(nome || ' ' || cognome)"
+                " WHERE nome_completo = ''"
+            )
 
 
 # ---------------------------------------------------------------- sessioni
