@@ -399,7 +399,7 @@ VARIANTI = {
 WORKSHOP = {
     "eyebrow": "IL PROSSIMO PASSO",
     "titolo": "🌊 Workshop \u201cProfessionista del Futuro\u201d",
-    "sottotitolo": "22-25 Ottobre · Online · Gratuito",
+    "sottotitolo": "22-25 Ottobre · 20.00-22.00 · Online · Gratuito",
     "paragrafo": (
         "Quattro giorni per imparare a cavalcare l'onda del cambiamento: intelligenza "
         "artificiale, ma anche intelligenza emotiva, elemento umano, e il coraggio di "
