@@ -414,7 +414,7 @@ WORKSHOP = {
     ],
     "nota": (
         "Cliccando qui sotto invii la tua pre-iscrizione: non sei ancora iscritto "
-        "automaticamente. Un coach ti contatterà su WhatsApp entro 48 ore per "
+        "automaticamente. Un coach ti contatterà su WhatsApp al più presto per "
         "confermare la tua partecipazione."
     ),
     "cta": "Invia la pre-iscrizione",

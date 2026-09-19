@@ -352,9 +352,10 @@ def pagina_conferma(submission):
 <div class="contenuto stretto">
   <div class="card sollevata">
     <h2>Cosa succede adesso</h2>
-    <p>Un coach del team ti scrive su WhatsApp al numero che hai lasciato, entro 48 ore,
+    <p>Un coach del team ti scrive su WhatsApp al numero che hai lasciato, al più presto,
     per completare l'iscrizione e rispondere alle tue domande.</p>
-    <p>Nel frattempo salva le date: <strong>22-25 Ottobre, online</strong>.</p>
+    <p>Nel frattempo salva le date: <strong>22-25 Ottobre, dalle 20.00 alle 22.00,
+    online</strong>.</p>
     <div class="box-autore">
       <div class="avatar">AA</div>
       <div>
