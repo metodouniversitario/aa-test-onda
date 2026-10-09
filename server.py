@@ -303,7 +303,10 @@ SCRIPT_ARIANNA = r"""
       window.location.href = app;
       setTimeout(function(){ if (!lasciata && document.visibilityState === 'visible') window.location.href = web; }, 1500);
     } else {
-      setTimeout(function(){ window.location.href = '/conferma'; }, 600);
+      // computer: niente scheda nuova di WhatsApp, si va solo alla pagina finale
+      // e lì il bottone «Scrivi ad Arianna su WhatsApp» la apre una volta sola.
+      ev.preventDefault();
+      setTimeout(function(){ window.location.href = '/conferma'; }, 300);
     }
   });
 })();
