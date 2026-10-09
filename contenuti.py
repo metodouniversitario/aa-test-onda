@@ -413,11 +413,10 @@ WORKSHOP = {
         "🌊 Come cavalcare il cambiamento invece di subirlo, lavorando prima \u201cdentro\u201d e poi \u201cfuori\u201d",
     ],
     "nota": (
-        "Cliccando qui sotto invii la tua pre-iscrizione: non sei ancora iscritto "
-        "automaticamente. Un coach ti contatterà su WhatsApp al più presto per "
-        "confermare la tua partecipazione."
+        "Premi qui sotto: si apre WhatsApp e Arianna, la mia coach, fissa con te giorno e "
+        "ora della chiamata con un mio coach, che ti conferma il posto."
     ),
-    "cta": "Invia la pre-iscrizione",
+    "cta": "Prenota il tuo posto con Arianna su WhatsApp 💬",
 }
 
 # Copy della landing, parola per parola come da istruzioni

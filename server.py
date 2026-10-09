@@ -268,6 +268,48 @@ def _blocco_punteggi(esito):
     return '<div class="punteggi">%s</div>' % "".join(righe)
 
 
+# Arianna, la setter del team su WhatsApp (chattino). Il messaggio parte con la "mano alzata"
+# che riconosce gia' nelle sue istruzioni: «Ciao Arianna, voglio venire al workshop...».
+ARIANNA_WA = "34684711182"
+
+
+def link_arianna(nome, profilo):
+    testo = "Ciao Arianna, voglio venire al workshop professionista del futuro."
+    if nome:
+        testo += " Sono %s, ho fatto il Test Onda" % nome
+        testo += " (profilo %s)." % profilo if profilo else "."
+    return "https://wa.me/%s?text=%s" % (ARIANNA_WA, urllib.parse.quote(testo))
+
+
+# Un clic solo: la pre-iscrizione parte in background (sendBeacon) e intanto si apre WhatsApp.
+# Sul telefono si apre direttamente l'app; se non si apre entro 1,5 s si ripiega su wa.me.
+# Al ritorno sulla pagina (o sul computer, dopo l'apertura della nuova scheda) si va alla conferma.
+SCRIPT_ARIANNA = r"""
+<script>
+(function(){
+  var a = document.getElementById('cta-arianna');
+  if (!a) return;
+  a.addEventListener('click', function(ev){
+    try { navigator.sendBeacon('/preiscrizione', new Blob([''], {type: 'application/x-www-form-urlencoded'})); } catch (e) {}
+    var web = a.getAttribute('href');
+    if (/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+      ev.preventDefault();
+      var app = web.replace(/^https:\/\/wa\.me\/(\d+)\?text=/, 'whatsapp://send?phone=$1&text=');
+      var lasciata = false;
+      document.addEventListener('visibilitychange', function(){
+        if (document.visibilityState === 'hidden') lasciata = true;
+        else if (lasciata) window.location.href = '/conferma';
+      });
+      window.location.href = app;
+      setTimeout(function(){ if (!lasciata && document.visibilityState === 'visible') window.location.href = web; }, 1500);
+    } else {
+      setTimeout(function(){ window.location.href = '/conferma'; }, 600);
+    }
+  });
+})();
+</script>"""
+
+
 def pagina_risultato(submission, esito):
     """Profilo, punteggi, messaggio di Andrea e workshop: tutto in una schermata."""
     variante = contenuti.VARIANTI[esito["variante"]]
@@ -314,9 +356,12 @@ def pagina_risultato(submission, esito):
       <ul>%s</ul>
     </div>
     <p class="nota">%s</p>
-    <form method="post" action="/preiscrizione">
-      <button type="submit" class="bottone largo">%s <span>&rarr;</span></button>
-    </form>
+    <a class="bottone largo" id="cta-arianna" href="%s" target="_blank" rel="noopener" style="display:flex;justify-content:center;align-items:center;text-align:center;color:#fff;text-decoration:none">%s</a>
+    <noscript>
+      <form method="post" action="/preiscrizione">
+        <button type="submit" class="bottone largo">Invia la pre-iscrizione <span>&rarr;</span></button>
+      </form>
+    </noscript>
     <a class="link-secondario" href="/rifai">Rifai il quiz</a>
   </div>
 </div>
@@ -337,9 +382,10 @@ def pagina_risultato(submission, esito):
         e(w["teaser_intro"]),
         teaser,
         e(w["nota"]),
+        e(link_arianna(nome, archetipo["nome"])),
         e(w["cta"]),
     )
-    return pagina("Test Onda, il tuo profilo", corpo)
+    return pagina("Test Onda, il tuo profilo", corpo + SCRIPT_ARIANNA)
 
 
 def pagina_conferma(submission):
@@ -351,9 +397,9 @@ def pagina_conferma(submission):
 </section>
 <div class="contenuto stretto">
   <div class="card sollevata">
-    <h2>Cosa succede adesso</h2>
-    <p>Un coach del team ti scrive su WhatsApp al numero che hai lasciato, al più presto,
-    per completare l'iscrizione e rispondere alle tue domande.</p>
+    <p><strong>Scrivi tu ad Arianna</strong> su WhatsApp: il messaggio è già pronto,
+    devi solo premere invio. Arianna fissa con te <strong>giorno e ora</strong>
+    della chiamata con un mio coach.</p>
     <p>Nel frattempo salva le date: <strong>22-25 Ottobre, dalle 20.00 alle 22.00,
     online</strong>.</p>
     <div class="box-autore">
