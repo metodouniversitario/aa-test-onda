@@ -400,6 +400,7 @@ def pagina_conferma(submission):
     <p><strong>Scrivi tu ad Arianna</strong> su WhatsApp: il messaggio è già pronto,
     devi solo premere invio. Arianna fissa con te <strong>giorno e ora</strong>
     della chiamata con un mio coach.</p>
+    <a class="bottone largo" href="%s" target="_blank" rel="noopener" style="display:flex;justify-content:center;align-items:center;text-align:center;color:#fff;text-decoration:none;margin:20px 0;padding-left:18px;padding-right:18px">Scrivi ad Arianna su WhatsApp&nbsp;💬</a>
     <p>Nel frattempo salva le date: <strong>22-25 Ottobre, dalle 20.00 alle 22.00,
     online</strong>.</p>
     <div class="box-autore">
@@ -411,7 +412,10 @@ def pagina_conferma(submission):
     </div>
   </div>
 </div>
-""" % e(submission["nome"])
+""" % (e(submission["nome"]), e(link_arianna(
+        submission["nome"],
+        contenuti.ARCHETIPI.get(submission["archetipo"], {}).get("nome", ""),
+    )))
     return pagina("Test Onda, pre-iscrizione inviata", corpo)
 
 
